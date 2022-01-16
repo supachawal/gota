@@ -563,6 +563,28 @@ func (df DataFrame) CBind(dfb DataFrame) DataFrame {
 	return New(cols...)
 }
 
+// MergeableType finds the suitable data type to ensure no data loss after merging (RBind or Concat).
+func MergeableType(aType, bType series.Type) series.Type {
+	detectTypeRank := func (t series.Type) int {
+		switch t {
+		case series.String:
+			return 4
+		case series.Float:
+			return 3
+		case series.Int:
+			return 2
+		case series.Bool:
+			return 1
+		default:
+			panic("type not supported")
+		}
+	}
+	if detectTypeRank(aType) >= detectTypeRank(bType) {
+		return aType
+	}
+	return bType
+}
+
 // RBind matches the column names of two DataFrames and returns combined
 // rows from both of them.
 func (df DataFrame) RBind(dfb DataFrame) DataFrame {
@@ -581,6 +603,19 @@ func (df DataFrame) RBind(dfb DataFrame) DataFrame {
 
 		originalSeries := df.columns[k]
 		addedSeries := dfb.columns[idx]
+		mergeableType := MergeableType(originalSeries.Type(), addedSeries.Type())
+		if originalSeries.Type() != mergeableType {
+			switch mergeableType {
+			case series.String:
+				originalSeries = series.New(originalSeries.Records(), mergeableType, originalSeries.Name)
+			case series.Float:
+				originalSeries = series.New(originalSeries.Float(), mergeableType, originalSeries.Name)
+			case series.Int:
+				originalSeries = series.New(originalSeries.Int(), mergeableType, originalSeries.Name)
+			case series.Bool:
+				originalSeries = series.New(originalSeries.Bool(), mergeableType, originalSeries.Name)
+			}
+		}
 		newSeries := originalSeries.Concat(addedSeries)
 		if err := newSeries.Err; err != nil {
 			return DataFrame{Err: fmt.Errorf("rbind: %v", err)}
@@ -628,6 +663,19 @@ func (df DataFrame) Concat(dfb DataFrame) DataFrame {
 			b = dfb.columns[bidx]
 		} else {
 			b = series.New(make([]struct{}, dfb.nrows), a.Type(), a.Name)
+		}
+		mergeableType := MergeableType(a.Type(), b.Type())
+		if a.Type() != mergeableType {
+			switch mergeableType {
+			case series.String:
+				a = series.New(a.Records(), mergeableType, a.Name)
+			case series.Float:
+				a = series.New(a.Float(), mergeableType, a.Name)
+			case series.Int:
+				a = series.New(a.Int(), mergeableType, a.Name)
+			case series.Bool:
+				a = series.New(a.Bool(), mergeableType, a.Name)
+			}
 		}
 		newSeries := a.Concat(b)
 		if err := newSeries.Err; err != nil {
